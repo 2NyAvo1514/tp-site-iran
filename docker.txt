@@ -35,7 +35,7 @@ Fichiers à générer :
 2. Dockerfile pour PHP + Apache
 3. dossier docker/initdb avec scripts SQL
 4. configuration Apache (activation de mod_rewrite)
-5. script SQL d'initialisation
+5. script SQL d'initialisation (a partir des fichiers SQL de notre projet)
 
 Contraintes techniques :
 

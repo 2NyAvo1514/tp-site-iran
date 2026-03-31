@@ -8,9 +8,9 @@ function getDB(): PDO
     static $pdo = null;
 
     if ($pdo === null) {
-        $dsn  = 'pgsql:host=localhost;dbname=iran_war';
-        $user = 'postgres';
-        $pass = 'postgre';
+        $dsn  = 'pgsql:host=db;dbname=cmsdb';
+        $user = 'cmsuser';
+        $pass = 'cmspassword';
 
         try {
             $pdo = new PDO($dsn, $user, $pass, [

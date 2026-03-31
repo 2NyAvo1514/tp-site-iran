@@ -24,19 +24,57 @@ $images = $pdo->query(
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $id_contenu = (int) ($_POST['id_contenu'] ?? 0);
     $url        = trim($_POST['url'] ?? '');
+    $uploaded_file = $_FILES['image_file'] ?? null;
+    $upload_dir = __DIR__ . '/../../frontoffice/images/';
 
-    if (!$id_contenu || empty($url)) {
-        $error = 'Article and image URL are required.';
-    } elseif (!filter_var($url, FILTER_VALIDATE_URL)) {
-        $error = 'Please enter a valid URL.';
-    } else {
-        try {
-            $pdo->prepare("INSERT INTO image (id_contenu, url) VALUES (:c, :u)")
-                ->execute([':c' => $id_contenu, ':u' => $url]);
-            header('Location: ' . bo_base_path() . 'image-ajouter?flash=' . urlencode('Image linked successfully.'));
-            exit;
-        } catch (PDOException $e) {
-            $error = 'Database error: ' . $e->getMessage();
+    if (!$id_contenu) {
+        $error = 'Article is required.';
+    } elseif (empty($url) && empty($uploaded_file['name'])) {
+        $error = 'Please provide an image URL or upload a file.';
+    } elseif (!empty($uploaded_file['name'])) {
+        // Handle file upload
+        $allowed = ['jpg','jpeg','png','gif','webp'];
+        $ext = strtolower(pathinfo($uploaded_file['name'], PATHINFO_EXTENSION));
+        
+        if ($uploaded_file['error'] !== UPLOAD_ERR_OK) {
+            $error = 'Upload error: ' . $uploaded_file['error'];
+        } elseif (!in_array($ext, $allowed)) {
+            $error = 'Invalid file type. Allowed: jpg, jpeg, png, gif, webp';
+        } elseif ($uploaded_file['size'] > 5*1024*1024) {
+            $error = 'File too large (max 5MB).';
+        } else {
+            $filename = uniqid('img_', true) . '.' . $ext;
+            if (!is_dir($upload_dir)) {
+                mkdir($upload_dir, 0775, true);
+            }
+            $dest = $upload_dir . $filename;
+            if (move_uploaded_file($uploaded_file['tmp_name'], $dest)) {
+                $rel_path = 'images/' . $filename;
+                try {
+                    $pdo->prepare("INSERT INTO image (id_contenu, url) VALUES (:c, :u)")
+                        ->execute([':c' => $id_contenu, ':u' => $rel_path]);
+                    header('Location: ' . bo_base_path() . 'image-ajouter?flash=' . urlencode('Image uploaded successfully.'));
+                    exit;
+                } catch (PDOException $e) {
+                    $error = 'Database error: ' . $e->getMessage();
+                }
+            } else {
+                $error = 'Upload failed.';
+            }
+        }
+    } elseif (!empty($url)) {
+        // Handle URL only
+        if (!filter_var($url, FILTER_VALIDATE_URL)) {
+            $error = 'Please enter a valid URL.';
+        } else {
+            try {
+                $pdo->prepare("INSERT INTO image (id_contenu, url) VALUES (:c, :u)")
+                    ->execute([':c' => $id_contenu, ':u' => $url]);
+                header('Location: ' . bo_base_path() . 'image-ajouter?flash=' . urlencode('Image linked successfully.'));
+                exit;
+            } catch (PDOException $e) {
+                $error = 'Database error: ' . $e->getMessage();
+            }
         }
     }
 }
@@ -55,17 +93,13 @@ $base = bo_base_path();
     </div>
 
     <?php bo_flash($flash); ?>
-    <?php bo_flash($error, 'error'); ?>
-
-    <!-- Add image form -->
+    <?php bo_flash($error, 'error'); ?>    <!-- Add image form -->
     <section aria-labelledby="img-form-title" style="margin-bottom:2.5rem;">
         <h2 id="img-form-title" style="font-family:var(--font-heading);font-size:1.3rem;color:var(--clr-white);margin-bottom:1rem;">
             Link New Image
         </h2>
 
-        <form class="bo-form" method="post" action="" aria-label="Add image form">
-
-            <div class="form-group">
+        <form class="bo-form" method="post" action="" aria-label="Add image form" enctype="multipart/form-data">            <div class="form-group">
                 <label for="id_contenu">Article <span aria-hidden="true" style="color:var(--clr-accent)">*</span></label>
                 <select id="id_contenu" name="id_contenu" required>
                     <option value="">— Select article —</option>
@@ -80,12 +114,20 @@ $base = bo_base_path();
             </div>
 
             <div class="form-group">
-                <label for="url">Image URL <span aria-hidden="true" style="color:var(--clr-accent)">*</span></label>
-                <input type="url" id="url" name="url" required
+                <label for="image_file">Upload Image <span aria-hidden="true" style="color:var(--clr-accent)">*</span></label>
+                <input type="file" id="image_file" name="image_file" accept="image/jpeg,image/png,image/gif,image/webp">
+                <p class="form-hint">Accepted formats: JPG, PNG, GIF, WebP (max 5MB)</p>
+            </div>
+
+            <div style="text-align:center;margin:1rem 0;color:var(--clr-muted);">— OR —</div>
+
+            <div class="form-group">
+                <label for="url">Image URL</label>
+                <input type="url" id="url" name="url"
                     value="<?= htmlspecialchars($_POST['url'] ?? '') ?>"
                     placeholder="https://example.com/image.jpg"
                     autocomplete="off">
-                <p class="form-hint">Must be a publicly accessible URL. The alt text is auto-derived from the article title.</p>
+                <p class="form-hint">Publicly accessible URL. Alt text is auto-derived from the article title.</p>
             </div>
 
             <!-- Preview -->
@@ -128,7 +170,14 @@ $base = bo_base_path();
                         <?php foreach ($images as $img): ?>
                             <tr>
                                 <td style="width:80px;">
-                                    <img src="<?= htmlspecialchars($img['url']) ?>"
+                                    <?php
+                                    $image_url = $img['url'];
+                                    // Convert relative paths to correct frontoffice path
+                                    if (strpos($image_url, 'http') !== 0 && !str_starts_with($image_url, '/')) {
+                                        $image_url = '../frontoffice/' . $image_url;
+                                    }
+                                    ?>
+                                    <img src="<?= htmlspecialchars($image_url) ?>"
                                         alt="Thumbnail for article: <?= htmlspecialchars($img['article_titre']) ?>"
                                         loading="lazy"
                                         width="72" height="48"
@@ -173,7 +222,12 @@ $base = bo_base_path();
                     previewWrap.style.display = 'none';
                     return;
                 }
-                preview.src = v;
+                // Handle relative paths by prefixing with /frontoffice/
+                var previewUrl = v;
+                if (previewUrl.indexOf('http') !== 0 && previewUrl.charAt(0) !== '/') {
+                    previewUrl = '/frontoffice/' + previewUrl;
+                }
+                preview.src = previewUrl;
                 preview.onload = function() {
                     previewWrap.style.display = 'block';
                 };
